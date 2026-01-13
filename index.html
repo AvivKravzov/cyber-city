@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Cyber City - Battle Royale</title>
+    <style>
+        /* הגדרות כלליות */
+        html, body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #10102a; 
+            font-family: 'Segoe UI', sans-serif; 
+            user-select: none;
+            height: 100%;
+        }
+        
+        /* ממשק משתמש במשחק */
+        #game-ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: none; }
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 20px; height: 20px; background: transparent; border: 2px solid rgba(0, 255, 255, 0.8); border-radius: 50%; transform: translate(-50%, -50%); }
+        #crosshair.hit { border-color: red; background: rgba(255, 0, 0, 0.4); transform: translate(-50%, -50%) scale(1.2); transition: 0.1s; }
+        .hud-panel { position: absolute; background: rgba(0, 0, 0, 0.6); padding: 10px 20px; border-radius: 5px; color: white; border: 1px solid #00ffff; box-shadow: 0 0 10px rgba(0,0,0,0.5); font-weight: bold; }
+        #health-bar-container { bottom: 30px; left: 30px; width: 200px; height: 20px; background: #333; border: 1px solid #fff; }
+        #health-bar { width: 100%; height: 100%; background: #ff0055; transition: width 0.2s; }
+        #health-text { position: absolute; top: -25px; left: 0; color: #ff0055; font-size: 20px; }
+        #ammo-display { bottom: 30px; right: 30px; font-size: 30px; color: #ffff00; }
+        #alive-counter { top: 20px; right: 20px; font-size: 24px; color: #00ff00; background: rgba(0,0,0,0.8); border: 1px solid #00ff00; padding: 10px 20px; }
+        #room-info { top: 20px; left: 50%; transform: translateX(-50%); font-size: 20px; color: cyan; text-align: center; text-shadow: 0 0 10px cyan; }
+        
+        /* מסכים (תפריט, לובי, סיום) */
+        .screen-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: url('https://images.unsplash.com/photo-1535868463750-c78d9543614f?q=80&w=1920&auto=format&fit=crop') no-repeat center center/cover; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; z-index: 100; }
+        .screen-overlay::before { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: -1; }
+        
+        .menu-box { position: relative; background: rgba(16, 16, 42, 0.95); padding: 50px; border-radius: 15px; border: 2px solid #00ffff; box-shadow: 0 0 50px rgba(0, 255, 255, 0.3); text-align: center; width: 400px; }
+        h1 { font-size: 3.5rem; margin: 0 0 30px 0; color: #00ffff; text-transform: uppercase; text-shadow: 0 0 20px #00ffff; font-style: italic; }
+        input { width: 100%; padding: 15px; font-size: 18px; background: #222; border: 1px solid #555; color: white; margin-bottom: 20px; text-align: center; box-sizing: border-box; }
+        button { width: 100%; padding: 18px; font-size: 22px; margin-bottom: 15px; cursor: pointer; font-weight: bold; border: none; transition: 0.2s; text-transform: uppercase; border-radius: 5px; }
+        .btn-single { background: #ff0055; color: white; box-shadow: 0 0 20px rgba(255, 0, 85, 0.4); }
+        .btn-single:hover { background: #ff3377; transform: scale(1.02); }
+        .btn-multi { background: transparent; border: 2px solid #00ffff; color: #00ffff; }
+        .btn-multi:hover { background: rgba(0, 255, 255, 0.1); }
+        .btn-create { background: linear-gradient(90deg, #00ffff, #0088ff); color: black; box-shadow: 0 0 15px rgba(0,255,255,0.3); }
+        .btn-create:hover { transform: scale(1.02); }
+        
+        #lobby-waiting-screen { display: none; }
+        .player-list { text-align: right; background: rgba(0,0,0,0.5); padding: 10px; margin-bottom: 20px; max-height: 150px; overflow-y: auto; border: 1px solid #555; }
+        .player-item { padding: 5px; border-bottom: 1px solid #333; color: #0f0; }
+        #game-over-screen { display: none; z-index: 200; }
+        #game-over-title { font-size: 60px; margin-bottom: 20px; }
+        .win-text { color: #00ff00; text-shadow: 0 0 30px #00ff00; }
+        .lose-text { color: #ff0000; text-shadow: 0 0 30px #ff0000; }
+        #return-btn { background: #ffffff; color: #000; font-size: 24px; padding: 15px 40px; margin-top: 30px; transition: all 0.3s; }
+        #return-btn:hover { background: #ddd; }
+        #return-btn:disabled { background: #555; color: #888; cursor: wait; }
+    </style>
+    
+    <!-- Firebase Libraries -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <!-- תפריט ראשי -->
+    <div id="main-menu" class="screen-overlay">
+        <div class="menu-box">
+            <h1>CYBER CITY</h1>
+            <input type="text" id="player-name" placeholder="שם שחקן" maxlength="10">
+            <button class="btn-single" onclick="startSinglePlayer()">👑 שחק נגד בוטים (יחיד)</button>
+            <div style="display: flex; gap: 10px;">
+                <button class="btn-create" onclick="createLobby()">➕ צור לובי</button>
+                <button class="btn-multi" onclick="showMultiplayerInput()">🌐 כנס ללובי</button>
+            </div>
+            <div id="multi-input-area" style="display:none; margin-top:15px; border-top:1px solid #444; padding-top:15px;">
+                <input type="text" id="room-code" placeholder="קוד חדר">
+                <button class="btn-multi" style="font-size:16px; padding:10px;" onclick="joinMultiplayer()">הצטרף לחדר</button>
+            </div>
+            <div id="status-msg" style="color:yellow; margin-top:10px;"></div>
+        </div>
+    </div>
+
+    <!-- מסך המתנה (לובי) -->
+    <div id="lobby-waiting-screen" class="screen-overlay">
+        <div class="menu-box">
+            <h2 style="color:white; margin-bottom: 5px;">חדר המתנה</h2>
+            <div style="font-size: 30px; color: #00ffff; font-family: monospace; margin-bottom: 20px; letter-spacing: 3px;">
+                קוד: <span id="lobby-code-display"></span>
+            </div>
+            <div style="text-align: right; margin-bottom: 5px; color: #aaa;">שחקנים (<span id="lobby-count">1</span>/10):</div>
+            <div class="player-list" id="lobby-player-list"></div>
+            <div id="host-controls" style="display: none;">
+                <button class="btn-create" onclick="startGameAsHost()">🚀 התחל משחק</button>
+                <div style="font-size: 14px; color: #aaa; margin-top: 5px;">אתה יכול להתחיל גם אם הלובי לא מלא</div>
+            </div>
+            <div id="guest-controls">
+                <p style="color: #aaa; animation: pulse 2s infinite;">ממתין למארח שיתחיל את המשחק...</p>
+            </div>
+            <div id="offline-warning" style="display:none; color: orange; font-size: 12px; margin-top: 10px;">
+                שים לב: אין חיבור לשרת. זהו מצב הדגמה בלבד.
+            </div>
+        </div>
+    </div>
+
+    <!-- מסך סיום -->
+    <div id="game-over-screen" class="screen-overlay">
+        <div class="menu-box">
+            <h1 id="game-over-title">GAME OVER</h1>
+            <p id="game-over-desc" style="font-size: 24px; color: white;"></p>
+            <button id="return-btn" onclick="returnToMenu()">חזור לתפריט הראשי</button>
+        </div>
+    </div>
+
+    <!-- המשחק -->
+    <div id="game-ui">
+        <div id="crosshair"></div>
+        <div id="room-info" class="hud-panel" style="display: none;">חדר: <span id="current-room-id"></span></div>
+        <div id="health-bar-container"><div id="health-text">100</div><div id="health-bar"></div></div>
+        <div id="ammo-display">⚡ 20</div>
+        <div id="alive-counter" class="hud-panel">נשארו בחיים: <span id="player-count">1</span></div>
+    </div>
+
+    <script>
+        // ==========================================
+        //  הגדרות שרת (Firebase Configuration)
+        //  כדי שהמולטיפלייר יעבוד באמת, יש להחליף את זה במפתחות אמיתיים!
+        // ==========================================
+        const firebaseConfig = { apiKey: "AIzaSyA7vZYviTtc-ur04OQdXp6ykWxvVpArlIU", 
+        authDomain: "cybercitygame-6fc48.firebaseapp.com", 
+        projectId: "cybercitygame-6fc48", 
+        storageBucket: "cybercitygame-6fc48.firebasestorage.app", 
+        messagingSenderId: "619143328159", 
+        appId: "1:619143328159:web:caee2035d3c620ea7d0daa", 
+        measurementId: "G-HC0K01TX4K" };
+        // ==========================================
+
+        const MAX_PLAYERS = 10;
+        let db, auth;
+        let isSinglePlayer = true;
+        let isGameRunning = false;
+        let myId = null;
+        let myUsername = "Player";
+        let currentRoomCode = "";
+        let isHost = false;
+        let networkInterval = null;
+        let isOfflineMode = false; // דגל למצב ללא שרת
+        
+        let scene, camera, renderer;
+        let players = {}; 
+        let collidableObjects = []; 
+        let buildingMeshes = []; 
+        let floorPlane = null;
+        let lastSafePos = new THREE.Vector3();
+        const velocity = new THREE.Vector3();
+        const direction = new THREE.Vector3();
+        let moveForward=false, moveBackward=false, moveLeft=false, moveRight=false, canJump=false;
+        let prevTime = performance.now();
+        let hp = 100, ammo = 20, isReloading = false, isDead = false, aliveCount = 1;
+        let localBots = [];
+        const controls = { isLocked: false, getObject: () => camera };
+
+        function initApp() {
+            // בדיקה אם יש הגדרות שרת תקינות
+            if (firebaseConfig.apiKey !== "AIzaSy...") {
+                firebase.initializeApp(firebaseConfig);
+                db = firebase.firestore();
+                auth = firebase.auth();
+            } else {
+                console.log("Firebase not configured. Running in Offline/Demo mode.");
+                isOfflineMode = true;
+            }
+            
+            const savedName = localStorage.getItem('cyber_shooter_username');
+            if (savedName) {
+                document.getElementById('player-name').value = savedName;
+                myUsername = savedName;
+            }
+        }
+
+        function showMultiplayerInput() {
+            document.getElementById('multi-input-area').style.display = 'block';
+        }
+
+        async function createLobby() {
+            const name = document.getElementById('player-name').value.trim();
+            if (!name) {
+                document.getElementById('status-msg').innerText = "אנא הכנס שם שחקן קודם";
+                return;
+            }
+            saveUsername(name);
+            
+            const newCode = Math.floor(1000 + Math.random() * 9000).toString();
+            currentRoomCode = newCode;
+            isHost = true;
+
+            if (isOfflineMode) {
+                // מצב הדגמה אופליין
+                enterLobbyUI();
+                return;
+            }
+
+            // מצב אונליין אמיתי
+            document.getElementById('status-msg').innerText = "מתחבר...";
+            try {
+                await connectToFirebase();
+                await db.collection('rooms').doc(newCode).set({
+                    hostId: myId,
+                    status: 'waiting', 
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                enterLobbyUI();
+            } catch (e) {
+                document.getElementById('status-msg').innerText = "שגיאת התחברות: " + e.message;
+            }
+        }
+
+        async function joinMultiplayer() {
+            const name = document.getElementById('player-name').value.trim();
+            const code = document.getElementById('room-code').value.trim();
+            
+            if(!name || !code) { 
+                document.getElementById('status-msg').innerText = "חובה להזין שם וקוד"; 
+                return; 
+            }
+            
+            saveUsername(name);
+            currentRoomCode = code;
+            isHost = false;
+
+            if (isOfflineMode) {
+                document.getElementById('status-msg').innerText = "אין חיבור שרת (מצב אופליין). לא ניתן להצטרף.";
+                return;
+            }
+
+            document.getElementById('status-msg').innerText = "מתחבר...";
+            try {
+                await connectToFirebase();
+                const roomDoc = db.collection('rooms').doc(code);
+                const docSnap = await roomDoc.get();
+                if (!docSnap.exists) {
+                    document.getElementById('status-msg').innerText = "החדר לא נמצא";
+                    return;
+                }
+                
+                // בדיקת מגבלה
+                const playersSnap = await roomDoc.collection('players').get();
+                if(playersSnap.size >= 10) {
+                    document.getElementById('status-msg').innerText = "החדר מלא!";
+                    return;
+                }
+                
+                enterLobbyUI();
+            } catch (e) {
+                document.getElementById('status-msg').innerText = "שגיאה: " + e.message;
+            }
+        }
+
+        async function connectToFirebase() {
+            if (!auth.currentUser) {
+                await auth.signInAnonymously();
+            }
+            myId = auth.currentUser.uid;
+        }
+
+        function enterLobbyUI() {
+            document.getElementById('main-menu').style.display = 'none';
+            document.getElementById('lobby-waiting-screen').style.display = 'flex';
+            document.getElementById('lobby-code-display').innerText = currentRoomCode;
+
+            if (isHost) {
+                document.getElementById('host-controls').style.display = 'block';
+                document.getElementById('guest-controls').style.display = 'none';
+            } else {
+                document.getElementById('host-controls').style.display = 'none';
+                document.getElementById('guest-controls').style.display = 'block';
+            }
+
+            if (isOfflineMode) {
+                document.getElementById('offline-warning').style.display = 'block';
+                // זיוף שחקן בלובי
+                const listEl = document.getElementById('lobby-player-list');
+                listEl.innerHTML = `<div class="player-item">👤 ${myUsername} (אתה)</div>`;
+            } else {
+                // חיבור אמיתי
+                db.collection('rooms').doc(currentRoomCode).collection('players').doc(myId).set({
+                    username: myUsername,
+                    isReady: true,
+                    hp: 100,
+                    isDead: false
+                });
+                listenToLobby();
+            }
+        }
+
+        function listenToLobby() {
+            if (isOfflineMode) return;
+
+            const roomRef = db.collection('rooms').doc(currentRoomCode);
+
+            roomRef.collection('players').onSnapshot(snapshot => {
+                const listEl = document.getElementById('lobby-player-list');
+                const countEl = document.getElementById('lobby-count');
+                listEl.innerHTML = '';
+                let count = 0;
+                snapshot.forEach(doc => {
+                    const d = doc.data();
+                    const item = document.createElement('div');
+                    item.className = 'player-item';
+                    item.innerText = "👤 " + d.username;
+                    listEl.appendChild(item);
+                    count++;
+                });
+                countEl.innerText = count;
+                aliveCount = count; 
+            });
+
+            roomRef.onSnapshot(doc => {
+                if (doc.exists && doc.data().status === 'playing' && !isGameRunning) {
+                    startMultiplayerGame();
+                }
+            });
+        }
+
+        function startGameAsHost() {
+            if (isOfflineMode) {
+                startMultiplayerGame();
+                return;
+            }
+            if (!isHost) return;
+            db.collection('rooms').doc(currentRoomCode).update({ status: 'playing' });
+        }
+
+        function startMultiplayerGame() {
+            isSinglePlayer = false;
+            document.getElementById('lobby-waiting-screen').style.display = 'none';
+            document.getElementById('game-ui').style.display = 'block';
+            document.getElementById('room-info').style.display = 'block';
+            document.getElementById('current-room-id').innerText = currentRoomCode;
+
+            initGameWorld();
+            
+            if (!isOfflineMode) {
+                setupNetworkGame();
+            } else {
+                // מצב אופליין מולטיפלייר (אתה לבד)
+                aliveCount = 1;
+                updatePlayerCount();
+                alert("מצב הדגמה: אין שחקנים אחרים כי אין חיבור לשרת.");
+            }
+            
+            isGameRunning = true;
+            animate();
+            setTimeout(() => document.body.requestPointerLock(), 100);
+        }
+
+        function setupNetworkGame() {
+            networkInterval = setInterval(() => {
+                if(!isDead && isGameRunning) {
+                    db.collection('rooms').doc(currentRoomCode).collection('players').doc(myId).update({
+                        x: camera.position.x,
+                        y: camera.position.y,
+                        z: camera.position.z,
+                        rotY: camera.rotation.y,
+                        hp: hp,
+                        isDead: isDead
+                    });
+                }
+            }, 80);
+
+            db.collection('rooms').doc(currentRoomCode).collection('players').onSnapshot(snapshot => {
+                let live = 0;
+                snapshot.docChanges().forEach(change => {
+                    const pid = change.doc.id;
+                    const d = change.doc.data();
+                    if(pid === myId) {
+                        if(d.hp < hp) takeDamage(hp - d.hp);
+                        return;
+                    }
+                    if (change.type === "added" || change.type === "modified") {
+                        if (!players[pid]) {
+                            const mesh = createPlayerMesh(false, d.username); 
+                            scene.add(mesh);
+                            players[pid] = { mesh: mesh, id: pid };
+                        }
+                        const p = players[pid];
+                        if(d.isDead) {
+                            p.mesh.visible = false;
+                        } else {
+                            p.mesh.visible = true;
+                            p.mesh.position.set(d.x || 0, d.y || 1.7, d.z || 0);
+                            p.mesh.rotation.y = d.rotY || 0;
+                        }
+                    }
+                    if (change.type === "removed") {
+                        if(players[pid]) { scene.remove(players[pid].mesh); delete players[pid]; }
+                    }
+                });
+                snapshot.forEach(doc => { if(!doc.data().isDead) live++; });
+                aliveCount = live;
+                updatePlayerCount();
+                if(aliveCount === 1 && !isDead && snapshot.size > 1) setTimeout(() => endGame(true), 1000);
+            });
+        }
+
+        // --- שאר פונקציות המשחק ---
+        function returnToMenu() {
+            const btn = document.getElementById('return-btn');
+            btn.innerText = "חוזר לתפריט...";
+            btn.disabled = true;
+            saveUsername(myUsername);
+            setTimeout(() => { location.reload(); }, 2000);
+        }
+        function endGame(won) {
+            isGameRunning = false;
+            if(networkInterval) clearInterval(networkInterval);
+            document.exitPointerLock();
+            document.getElementById('game-ui').style.display = 'none';
+            document.getElementById('game-over-screen').style.display = 'flex';
+            document.getElementById('game-over-title').innerText = won ? "🏆 ניצחון!" : "💀 הפסדת";
+            document.getElementById('game-over-desc').innerText = won ? "היית השורד האחרון!" : "הודחת מהמשחק.";
+            document.getElementById('return-btn').innerText = "חזור לתפריט הראשי";
+            document.getElementById('return-btn').disabled = false;
+        }
+        function saveUsername(n){ if(n) { localStorage.setItem('cyber_shooter_username', n); myUsername = n; } }
+        async function startSinglePlayer(){
+            const name = document.getElementById('player-name').value.trim() || "Hero";
+            saveUsername(name);
+            isSinglePlayer = true;
+            myId = "local_player";
+            document.getElementById('main-menu').style.display = 'none';
+            document.getElementById('game-ui').style.display = 'block';
+            aliveCount = MAX_PLAYERS;
+            updatePlayerCount();
+            initGameWorld();
+            for(let i=1; i<MAX_PLAYERS; i++) spawnBot(i);
+            isGameRunning = true;
+            animate();
+            setTimeout(() => document.body.requestPointerLock(), 100);
+        }
+        function initGameWorld() {
+            scene = new THREE.Scene(); 
+            // תאורה משופרת - יותר בהיר!
+            scene.background = new THREE.Color(0x151525); 
+            scene.fog = new THREE.Fog(0x151525, 30, 300); 
+
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+            
+            // תאורה חזקה יותר
+            scene.add(new THREE.AmbientLight(0x808080, 2.0)); 
+            const d = new THREE.DirectionalLight(0xffffff, 1.2); 
+            d.position.set(50, 100, 50); d.castShadow = true; scene.add(d);
+            
+            createCity();
+            const s = getSafeSpawnPos(); camera.position.set(s.x, 1.7, s.z); lastSafePos.copy(camera.position);
+            setupControls();
+        }
+        function createCity() {
+            const f = new THREE.Mesh(new THREE.PlaneGeometry(600,600), new THREE.MeshStandardMaterial({color:0x222222})); f.rotation.x=-Math.PI/2; scene.add(f);
+            scene.add(new THREE.GridHelper(600,60,0x444444,0x222222));
+            const mat=new THREE.MeshStandardMaterial({color:0x1a1a1a}); const nm=new THREE.MeshBasicMaterial({color:0x00ffff}); const rm=new THREE.MeshBasicMaterial({color:0xff0055});
+            for(let i=0;i<200;i++){
+                const w=5+Math.random()*15, d=5+Math.random()*15, h=10+Math.random()*30;
+                const x=(Math.random()-0.5)*500, z=(Math.random()-0.5)*500;
+                if(Math.abs(x)<20 && Math.abs(z)<20) continue;
+                const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat); m.position.set(x,h/2,z); scene.add(m); buildingMeshes.push(m);
+                m.add(new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), Math.random()>0.5?nm:rm));
+                m.geometry.computeBoundingBox(); collidableObjects.push(new THREE.Box3().setFromObject(m));
+            }
+            const b=295; collidableObjects.push(new THREE.Box3(new THREE.Vector3(-b,0,-b-20), new THREE.Vector3(b,50,-b)));
+            collidableObjects.push(new THREE.Box3(new THREE.Vector3(-b,0,b), new THREE.Vector3(b,50,b+20)));
+            collidableObjects.push(new THREE.Box3(new THREE.Vector3(-b-20,0,-b), new THREE.Vector3(-b,50,b)));
+            collidableObjects.push(new THREE.Box3(new THREE.Vector3(b,0,-b), new THREE.Vector3(b+20,50,b)));
+        }
+        function checkCollision(p){
+            const b = new THREE.Box3(); b.min.set(p.x-0.3, p.y-1.5, p.z-0.3); b.max.set(p.x+0.3, p.y+0.5, p.z+0.3);
+            return collidableObjects.some(o => b.intersectsBox(o));
+        }
+        function checkLineOfSight(s,e){
+            const r=new THREE.Raycaster(); r.set(s, new THREE.Vector3().subVectors(e,s).normalize());
+            const i=r.intersectObjects(buildingMeshes, true);
+            return !(i.length>0 && i[0].distance < s.distanceTo(e));
+        }
+        function spawnBot(i){
+            if(!isSinglePlayer)return;
+            const m=createPlayerMesh(true,"Bot "+i); m.position.copy(getSafeSpawnPos()); scene.add(m);
+            localBots.push({id:`bot_${i}`, mesh:m, hp:100, targetPos:null, state:'patrol', shootTimer:0, strafeDir:1, reactionTimer:0});
+        }
+        function updateBots(dt){
+            localBots.forEach(b=>{
+                if(b.hp<=0)return;
+                let target=null, minDist=1000;
+                if(!isDead){
+                    const d=b.mesh.position.distanceTo(camera.position);
+                    if(d<minDist){ target={pos:camera.position,type:'p'}; minDist=d; }
+                }
+                localBots.forEach(o=>{
+                    if(o.id!==b.id && o.hp>0){
+                        const d=b.mesh.position.distanceTo(o.mesh.position);
+                        if(d<minDist){ target={pos:o.mesh.position,type:'b',obj:o}; minDist=d; }
+                    }
+                });
+                if(target && checkLineOfSight(b.mesh.position.clone().add(new THREE.Vector3(0,1.7,0)), target.pos)){
+                    b.mesh.lookAt(target.pos.x, b.mesh.position.y, target.pos.z);
+                    const md=new THREE.Vector3().subVectors(target.pos,b.mesh.position).normalize();
+                    const np=b.mesh.position.clone().add(md.multiplyScalar(6*dt));
+                    if(!checkCollision(np)) b.mesh.position.set(np.x,np.y,np.z);
+                    b.shootTimer-=dt;
+                    if(b.shootTimer<=0){
+                        b.shootTimer=0.8+Math.random()*1.5; createLaser(b.mesh.position, target.pos, 0xff0000);
+                        if(Math.random()<0.4){
+                            if(target.type==='p') takeDamage(8);
+                            else { target.obj.hp-=8; if(target.obj.hp<=0){ scene.remove(target.obj.mesh); target.obj.mesh.visible=false; target.obj.hp=0; aliveCount--; updatePlayerCount(); } }
+                        }
+                    }
+                } else if(target) { // hunt
+                    const md=new THREE.Vector3().subVectors(target.pos,b.mesh.position).normalize();
+                    const np=b.mesh.position.clone().add(md.multiplyScalar(5*dt));
+                    if(!checkCollision(np)) { b.mesh.position.set(np.x,np.y,np.z); b.mesh.lookAt(np.x, b.mesh.position.y, np.z); }
+                }
+            });
+        }
+        function setupControls(){
+            document.addEventListener('keydown',e=>{
+                if(e.code=='KeyW')moveForward=true; if(e.code=='KeyS')moveBackward=true;
+                if(e.code=='KeyA')moveLeft=true; if(e.code=='KeyD')moveRight=true;
+                if(e.code=='Space'&&canJump){velocity.y+=28;canJump=false;} if(e.code=='KeyR')reload();
+            });
+            document.addEventListener('keyup',e=>{
+                if(e.code=='KeyW')moveForward=false; if(e.code=='KeyS')moveBackward=false;
+                if(e.code=='KeyA')moveLeft=false; if(e.code=='KeyD')moveRight=false;
+            });
+            document.addEventListener('mousemove',e=>{if(controls.isLocked&&!isDead)camera.rotation.y-=e.movementX*0.002;});
+            document.addEventListener('mousedown',()=>{if(controls.isLocked&&!isDead)shoot();else if(!isDead)document.body.requestPointerLock();});
+            document.addEventListener('pointerlockchange',()=>{controls.isLocked=(document.pointerLockElement===document.body);});
+        }
+        function shoot(){
+            if(ammo<=0||isReloading)return; ammo--; updateHUD(); if(ammo===0)reload();
+            const rc=new THREE.Raycaster(); rc.setFromCamera(new THREE.Vector2(0,0),camera);
+            const targets=[]; if(isSinglePlayer) localBots.forEach(b=>{if(b.hp>0)targets.push(b.mesh)}); else for(let p in players) targets.push(players[p].mesh);
+            const i=rc.intersectObjects([...targets,...buildingMeshes],true);
+            let end=new THREE.Vector3(0,0,-100).applyMatrix4(camera.matrixWorld);
+            if(i.length>0){
+                end=i[0].point; let root=i[0].object; while(root.parent&&root.parent.type!=='Scene')root=root.parent;
+                let hit=false;
+                if(isSinglePlayer){
+                    const b=localBots.find(x=>x.mesh===root);
+                    if(b){ b.hp-=25; if(b.hp<=0){ scene.remove(b.mesh); b.mesh.visible=false; b.hp=0; aliveCount--; updatePlayerCount(); if(aliveCount===1) setTimeout(()=>endGame(true),1000); } hit=true;}
+                } else {
+                    for(let pid in players){ if(players[pid].mesh===root){ damageNetworkPlayer(pid,25); hit=true; break;} }
+                }
+                if(hit){ document.getElementById('crosshair').classList.add('hit'); setTimeout(()=>document.getElementById('crosshair').classList.remove('hit'),150); }
+            }
+            createLaser(new THREE.Vector3(0.5,-0.5,-1).applyMatrix4(camera.matrixWorld), end, 0x00ffff);
+        }
+        function damageNetworkPlayer(tid,d){
+            if(isOfflineMode) return;
+            db.runTransaction(t=>{
+                const r=db.collection('rooms').doc(currentRoomCode).collection('players').doc(tid);
+                return t.get(r).then(doc=>{ if(!doc.exists)return; t.update(r,{hp:Math.max(0,doc.data().hp-d),isDead:doc.data().hp-d<=0}); });
+            });
+        }
+        function createLaser(s,e,c){
+            const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints([s,e]), new THREE.LineBasicMaterial({color:c}));
+            scene.add(l); setTimeout(()=>scene.remove(l),80);
+        }
+        function reload(){ isReloading=true; document.getElementById('ammo-display').style.opacity=0.5; setTimeout(()=>{ammo=20;isReloading=false;updateHUD();document.getElementById('ammo-display').style.opacity=1;},1500); }
+        function takeDamage(d){ if(isDead)return; hp-=d; if(hp<0)hp=0; updateHUD(); if(hp<=0){isDead=true;aliveCount--;updatePlayerCount();endGame(false);} document.getElementById('game-ui').style.boxShadow="inset 0 0 50px red"; setTimeout(()=>document.getElementById('game-ui').style.boxShadow="none",200); }
+        function createPlayerMesh(e,n){
+            const g=new THREE.Group(), c=e?0xff0000:0x00ff00;
+            const b=new THREE.Mesh(new THREE.BoxGeometry(1,1.5,0.6),new THREE.MeshLambertMaterial({color:c})); b.position.y=0.75; g.add(b);
+            const h=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.5,0.5),new THREE.MeshLambertMaterial({color:0xffaaaa})); h.position.y=1.75; g.add(h);
+            if(n){
+                const cv=document.createElement('canvas');cv.width=300;cv.height=100;const x=cv.getContext('2d');
+                x.fillStyle="rgba(0,0,0,0.5)";x.fillRect(0,0,300,100);x.font="Bold 50px Arial";x.fillStyle="white";x.textAlign="center";x.textBaseline="middle";x.fillText(n,150,50);
+                const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(cv)})); s.scale.set(4,1.3,1); s.position.y=2.5; g.add(s);
+            }
+            return g;
+        }
+        function getSafeSpawnPos(){ for(let i=0;i<50;i++){ const x=(Math.random()-0.5)*500, z=(Math.random()-0.5)*500; if(!checkCollision({x,y:1.7,z}))return new THREE.Vector3(x,1.7,z); } return new THREE.Vector3(0,50,0); }
+        function updateHUD(){ document.getElementById('health-text').innerText=hp; document.getElementById('health-bar').style.width=hp+'%'; document.getElementById('ammo-display').innerText='⚡ '+ammo; }
+        function updatePlayerCount(){ document.getElementById('player-count').innerText=aliveCount; }
+        function animate(){
+            requestAnimationFrame(animate); if(!isGameRunning)return;
+            const t=performance.now(), dt=(t-prevTime)/1000; prevTime=t;
+            if(controls.isLocked&&!isDead){
+                velocity.x-=velocity.x*10*dt; velocity.z-=velocity.z*10*dt; velocity.y-=9.8*40*dt;
+                direction.z=Number(moveForward)-Number(moveBackward); direction.x=Number(moveRight)-Number(moveLeft); direction.normalize();
+                if(moveForward||moveBackward)velocity.z-=direction.z*600*dt; if(moveLeft||moveRight)velocity.x+=direction.x*600*dt;
+                const nx=velocity.x*dt, nz=velocity.z*dt;
+                const op=controls.getObject().position.clone(); controls.getObject().translateX(nx); if(checkCollision(controls.getObject().position)){controls.getObject().position.copy(op);velocity.x=0;}
+                const opz=controls.getObject().position.clone(); controls.getObject().translateZ(nz); if(checkCollision(controls.getObject().position)){controls.getObject().position.copy(opz);velocity.z=0;}
+                controls.getObject().position.y+=velocity.y*dt; if(controls.getObject().position.y<1.7){velocity.y=0;controls.getObject().position.y=1.7;canJump=true;}
+                if(checkCollision(controls.getObject().position)){ controls.getObject().position.copy(lastSafePos); velocity.set(0,0,0); } else lastSafePos.copy(controls.getObject().position);
+            }
+            if(isSinglePlayer&&localBots.length>0)updateBots(dt);
+            if(renderer) renderer.render(scene, camera);
+        }
+        window.addEventListener('resize',()=>{if(camera){camera.aspect=window.innerWidth/window.innerHeight;camera.updateProjectionMatrix();renderer.setSize(window.innerWidth,window.innerHeight);}});
+        initApp();
+    </script>
+</body>
+</html>
